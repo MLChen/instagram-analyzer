@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <!-- 統計卡片 -->
+    <div class="col-md-4">
+        <div class="stats-card">
+            <h3 class="h5 mb-3">總追蹤數</h3>
+            <p class="h2 mb-0 text-primary">{{ total_following }}</p>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="stats-card">
+            <h3 class="h5 mb-3">互相追蹤</h3>
+            <p class="h2 mb-0 text-success">{{ mutual_following }}</p>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="stats-card">
+            <h3 class="h5 mb-3">單向追蹤</h3>
+            <p class="h2 mb-0 text-danger">{{ one_way_following }}</p>
+        </div>
+    </div>
+</div>
+
+<!-- 單向追蹤列表 -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <h2 class="card-title h4">單向追蹤清單</h2>
+                <p class="text-muted">我追蹤，但對方沒追蹤我的帳號</p>
+                
+                {% if one_way_users %}
+                    {% for user in one_way_users %}
+                        <div class="user-card">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h3 class="h5 mb-1">
+                                        <a href="https://instagram.com/{{ user.username }}" 
+                                           target="_blank" 
+                                           class="text-decoration-none">
+                                            @{{ user.username }}
+                                        </a>
+                                    </h3>
+                                    <small class="text-muted">
+                                        開始追蹤: {{ user.first_seen.strftime('%Y-%m-%d') }}
+                                    </small>
+                                </div>
+                                <div class="text-end">
+                                    <small class="text-muted">
+                                        最後檢查: {{ user.last_seen.strftime('%Y-%m-%d %H:%M') }}
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="text-center text-muted my-5">
+                        沒有單向追蹤的帳號
+                    </p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 最近變動 -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <h2 class="card-title h4">最近變動</h2>
+                
+                {% if recent_changes %}
+                    {% for change in recent_changes %}
+                        <div class="change-item {% if change.event_type == 'new_follow' %}new-follow{% else %}unfollow{% endif %}">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h3 class="h6 mb-1">
+                                        <a href="https://instagram.com/{{ change.username }}" 
+                                           target="_blank"
+                                           class="text-decoration-none">
+                                            @{{ change.username }}
+                                        </a>
+                                    </h3>
+                                    <small class="text-muted">
+                                        {{ '新追蹤' if change.event_type == 'new_follow' else '取消追蹤' }}
+                                    </small>
+                                </div>
+                                <small class="text-muted">
+                                    {{ change.event_date.strftime('%Y-%m-%d %H:%M') }}
+                                </small>
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="text-center text-muted my-5">
+                        暫無變動記錄
+                    </p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
