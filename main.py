@@ -17,7 +17,7 @@ def create_app():
     app.config.from_object(app_config)
     
     # 確保數據庫目錄存在
-    db_path = os.path.abspath(app_config.DATABASE_PATH)
+    db_path = os.path.abspath(getattr(app_config, 'DATABASE_PATH', 'data/instagram.db'))
     db_dir = os.path.dirname(db_path)
     os.makedirs(db_dir, exist_ok=True)
     
@@ -27,7 +27,8 @@ def create_app():
     print(f"Database URI: {app.config['SQLALCHEMY_DATABASE_URI']}")
     
     # 確保日誌目錄存在
-    log_dir = os.path.dirname(app_config.LOG_FILE)
+    log_file = getattr(app_config, 'LOG_FILE', 'logs/app.log')
+    log_dir = os.path.dirname(log_file)
     os.makedirs(log_dir, exist_ok=True)
     
     # 初始化資料庫
@@ -46,12 +47,13 @@ def setup_logger(app_config):
     logger.setLevel(logging.INFO)
     
     # 確保日誌目錄存在
-    os.makedirs(os.path.dirname(app_config.LOG_FILE), exist_ok=True)
+    log_file = getattr(app_config, 'LOG_FILE', 'logs/app.log')
+    os.makedirs(os.path.dirname(log_file), exist_ok=True)
     
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     
     # 檔案處理器
-    file_handler = logging.FileHandler(app_config.LOG_FILE)
+    file_handler = logging.FileHandler(log_file)
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
     
@@ -161,13 +163,42 @@ def run_crawler():
             crawler.close()
             logger.info("已關閉瀏覽器")
 
+def test_check_follows_me(username):
+    """測試特定帳號的追蹤檢查"""
+    app = create_app()  # 創建應用以獲得正確的配置
+    logger = setup_logger(app.config)
+    crawler = None
+    
+    try:
+        crawler = InstagramCrawler(app.config)
+        crawler.init_driver()
+        
+        if not crawler.login():
+            logger.error("登入失敗")
+            return
+        
+        result = crawler.check_follows_me(username)
+        logger.info(f"測試結果: {username} {'有' if result else '沒有'}追蹤我")
+        
+    except Exception as e:
+        logger.error(f"測試過程中發生錯誤: {str(e)}")
+        raise
+    
+    finally:
+        if crawler:
+            crawler.close()
+
 def main():
     """主程式"""
     import sys
     
-    if len(sys.argv) > 1 and sys.argv[1] == 'crawl':
-        # 執行爬蟲
-        run_crawler()
+    if len(sys.argv) > 1:
+        if sys.argv[1] == 'crawl':
+            # 執行爬蟲
+            run_crawler()
+        elif sys.argv[1] == 'test' and len(sys.argv) > 2:
+            # 測試特定帳號
+            test_check_follows_me(sys.argv[2])
     else:
         # 啟動網頁服務
         app = create_app()
