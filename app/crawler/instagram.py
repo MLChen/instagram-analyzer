@@ -5,7 +5,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.common.exceptions import TimeoutException, NoSuchElementException, ElementClickInterceptedException
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
@@ -20,11 +20,12 @@ class InstagramCrawler:
 
     def setup_logger(self):
         """設定日誌"""
-        log_level = self.config.get('LOG_LEVEL', 'INFO')
+        log_level = self.config['LOG_LEVEL'] if 'LOG_LEVEL' in self.config else 'INFO'
         self.logger.setLevel(getattr(logging, log_level))
         
         # 檔案處理器
-        file_handler = logging.FileHandler(self.config.get('LOG_FILE', 'logs/app.log'))
+        log_file = self.config['LOG_FILE'] if 'LOG_FILE' in self.config else 'logs/app.log'
+        file_handler = logging.FileHandler(log_file)
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         file_handler.setFormatter(formatter)
         self.logger.addHandler(file_handler)
@@ -39,7 +40,8 @@ class InstagramCrawler:
         try:
             self.logger.info("開始初始化瀏覽器...")
             chrome_options = webdriver.ChromeOptions()
-            if self.config.get('HEADLESS_MODE', False):
+            headless_mode = self.config['HEADLESS_MODE'] if 'HEADLESS_MODE' in self.config else False
+            if headless_mode:
                 chrome_options.add_argument('--headless=new')
                 self.logger.info("使用 headless 模式")
             chrome_options.add_argument('--no-sandbox')
@@ -48,12 +50,17 @@ class InstagramCrawler:
             chrome_options.add_argument('--lang=zh-TW')
             chrome_options.add_argument('--window-size=1920,1080')
 
-            self.logger.info("正在安裝 ChromeDriver...")
-            driver_path = ChromeDriverManager().install()
-            self.logger.info(f"ChromeDriver 已安裝於: {driver_path}")
+            # 處理 ChromeDriver 路徑
+            chrome_driver_path = self.config.get('CHROME_DRIVER_PATH', None)
+            if chrome_driver_path and chrome_driver_path.strip() and chrome_driver_path != '# 可選，預設自動下載':
+                self.logger.info("使用指定的 ChromeDriver")
+                service = Service(chrome_driver_path)
+            else:
+                self.logger.info("自動下載並使用最新版本的 ChromeDriver")
+                service = Service(ChromeDriverManager().install())
 
             self.driver = webdriver.Chrome(
-                service=Service(driver_path),
+                service=service,
                 options=chrome_options
             )
             
@@ -77,13 +84,20 @@ class InstagramCrawler:
                 EC.presence_of_element_located((By.CSS_SELECTOR, "input[name='username']"))
             )
             self.logger.info("找到使用者名稱輸入框")
+            username = self.config['INSTAGRAM_USERNAME'] if 'INSTAGRAM_USERNAME' in self.config else ''
+            password = self.config['INSTAGRAM_PASSWORD'] if 'INSTAGRAM_PASSWORD' in self.config else ''
+            
+            if not username or not password:
+                self.logger.error("未設定 Instagram 帳號或密碼")
+                return False
+                
             username_input.clear()
-            username_input.send_keys(self.config.get('INSTAGRAM_USERNAME'))
+            username_input.send_keys(username)
             
             password_input = self.driver.find_element(By.CSS_SELECTOR, "input[name='password']")
             self.logger.info("找到密碼輸入框")
             password_input.clear()
-            password_input.send_keys(self.config.get('INSTAGRAM_PASSWORD'))
+            password_input.send_keys(password)
             
             login_button = self.driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
             self.logger.info("點擊登入按鈕")
@@ -106,8 +120,8 @@ class InstagramCrawler:
             self.logger.error(f"登入失敗: {str(e)}")
             return False
 
-    def scroll_dialog(self, max_attempts=50):
-        """使用 JavaScript 滾動對話框"""
+    def scroll_dialog(self):
+        """使用 JavaScript 滾動對話框直到沒有新內容"""
         try:
             # 等待對話框和滾動容器出現
             dialog = WebDriverWait(self.driver, 10).until(
@@ -117,9 +131,11 @@ class InstagramCrawler:
 
             no_change_count = 0
             prev_count = 0
+            attempt = 0
             
-            for attempt in range(max_attempts):
-                self.logger.info(f"執行第 {attempt+1}/{max_attempts} 次滾動")
+            while True:
+                attempt += 1
+                self.logger.info(f"執行第 {attempt} 次滾動")
                 
                 # 執行滾動和獲取結果
                 # 執行滾動和獲取結果
@@ -208,8 +224,13 @@ class InstagramCrawler:
     def get_following_list(self):
         """獲取追蹤清單"""
         try:
+            username = self.config['INSTAGRAM_USERNAME'] if 'INSTAGRAM_USERNAME' in self.config else ''
+            if not username:
+                self.logger.error("未設定 Instagram 帳號")
+                return []
+                
             self.logger.info("開始獲取追蹤清單...")
-            self.driver.get(f"https://www.instagram.com/{self.config.get('INSTAGRAM_USERNAME')}/")
+            self.driver.get(f"https://www.instagram.com/{username}/")
             time.sleep(5)
 
             self.logger.info("尋找追蹤中按鈕...")
@@ -242,7 +263,7 @@ class InstagramCrawler:
                     time.sleep(2)
                     
                     # 進行滾動載入
-                    if not self.scroll_dialog(max_attempts=150):  # 增加最大嘗試次數
+                    if not self.scroll_dialog():  # 移除最大嘗試次數限制
                         self.logger.warning("滾動過程出現問題，重試...")
                         continue
                     
@@ -286,25 +307,79 @@ class InstagramCrawler:
             self.driver.get(f"https://www.instagram.com/{username}/")
             time.sleep(3)
 
-            following_link = WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.XPATH, "//a[contains(@href, '/following')]"))
-            )
-            self.logger.info("點擊追蹤中按鈕")
-            following_link.click()
-            time.sleep(3)
+            # 檢查我的用戶名是否已設定
+            my_username = self.config['INSTAGRAM_USERNAME'] if 'INSTAGRAM_USERNAME' in self.config else ''
+            if not my_username:
+                self.logger.error("未設定 Instagram 帳號")
+                return False
 
-            # 直接檢查頁面頂部是否有我的帳號
-            dialog = WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.XPATH, "//div[@role='dialog']"))
-            )
-            
-            # 只檢查前5個用戶
-            first_users = dialog.find_elements(By.XPATH, ".//a[@role='link' and contains(@href, '/')]")[:5]
-            my_profile = f"instagram.com/{self.config.get('INSTAGRAM_USERNAME')}/"
-            follows_me = any(my_profile in user.get_attribute('href').lower() for user in first_users)
-            
-            self.logger.info(f"用戶 {username} {'有' if follows_me else '沒有'}追蹤我")
-            return follows_me
+            # 先尋找追蹤數量的連結或按鈕
+            try:
+                # 嘗試多種可能的選擇器
+                selectors = [
+                    "//a[contains(@href, '/following')]/span/span",  # 一般用戶頁面的連結
+                    "//a[contains(@href, '/following')]",            # 備用連結格式
+                    "//div[contains(@class, '_ab8w')]//span",       # 數字容器
+                    "//button[.//span[contains(text(), '追蹤中')]]"  # 按鈕內的文字
+                ]
+                
+                following_element = None
+                following_count = 0
+                
+                for selector in selectors:
+                    try:
+                        following_element = WebDriverWait(self.driver, 5).until(
+                            EC.presence_of_element_located((By.XPATH, selector))
+                        )
+                        # 找到元素後，獲取數字
+                        text = following_element.text
+                        self.logger.info(f"找到追蹤資訊元素: {text}")
+                        if text:
+                            count = int(''.join(filter(str.isdigit, text.split('\n')[0])))
+                            if count >= 0:
+                                following_count = count
+                                break
+                    except (TimeoutException, ValueError, NoSuchElementException):
+                        continue
+                        
+                if following_count == 0:
+                    self.logger.info(f"用戶 {username} 沒有追蹤任何人，因此確定沒有追蹤我")
+                    return False
+                    
+                self.logger.info(f"用戶 {username} 總共追蹤了 {following_count} 人")
+                
+                # 點擊追蹤清單
+                if following_element:
+                    self.logger.info(f"開始檢查 {username} 的追蹤列表...")
+                    following_element.click()
+                    time.sleep(5)  # 增加等待時間確保對話框完全載入
+                    
+                    # 檢查對話框是否出現
+                    dialog = WebDriverWait(self.driver, 10).until(
+                        EC.presence_of_element_located((By.XPATH, "//div[@role='dialog']"))
+                    )
+                    
+                    # 增加短暫等待確保內容載入
+                    time.sleep(2)
+                    
+                    # 檢查前5個用戶
+                    first_users = dialog.find_elements(By.XPATH, ".//a[@role='link' and contains(@href, '/')]")[:5]
+                    if not first_users:
+                        self.logger.error("無法找到用戶列表")
+                        return False
+                        
+                    my_profile = f"instagram.com/{my_username}/"
+                    follows_me = any(my_profile in user.get_attribute('href').lower() for user in first_users)
+                    
+                    self.logger.info(f"用戶 {username} {'有' if follows_me else '沒有'}追蹤我")
+                    return follows_me
+                else:
+                    self.logger.error("無法點擊追蹤清單")
+                    return False
+                    
+            except (TimeoutException, NoSuchElementException) as e:
+                self.logger.error(f"檢查過程發生錯誤: {str(e)}")
+                return False
 
         except Exception as e:
             self.logger.error(f"檢查用戶 {username} 是否追蹤我時失敗: {str(e)}")
