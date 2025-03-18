@@ -188,17 +188,54 @@ def test_check_follows_me(username):
         if crawler:
             crawler.close()
 
+def generate_static_report(app_config, output_path=None):
+    """生成靜態HTML報告"""
+    from app.report.generator import ReportGenerator
+    
+    try:
+        # 創建應用上下文
+        app = create_app()
+        
+        # 初始化報告生成器
+        generator = ReportGenerator(app)
+        
+        # 生成報告
+        report_path = generator.generate_report(output_path) if output_path else generator.generate_report()
+        print(f"報告已生成: {report_path}")
+        
+        # 在瀏覽器中打開報告
+        import webbrowser
+        webbrowser.open(f"file://{os.path.abspath(report_path)}")
+        return True
+    except Exception as e:
+        print(f"生成報告時發生錯誤: {str(e)}")
+        return False
+
 def main():
     """主程式"""
     import sys
     
     if len(sys.argv) > 1:
+        # 創建應用配置
+        config_name = os.getenv('FLASK_ENV', 'development')
+        app_config = config[config_name]
+        
         if sys.argv[1] == 'crawl':
             # 執行爬蟲
             run_crawler()
         elif sys.argv[1] == 'test' and len(sys.argv) > 2:
             # 測試特定帳號
             test_check_follows_me(sys.argv[2])
+        elif sys.argv[1] == 'generate-report':
+            # 生成靜態報告
+            output_path = sys.argv[2] if len(sys.argv) > 2 else None
+            generate_static_report(app_config, output_path)
+        else:
+            print("可用命令:")
+            print("  crawl              - 執行 Instagram 追蹤分析爬蟲")
+            print("  test <username>    - 測試檢查特定帳號是否互相追蹤")
+            print("  generate-report    - 生成靜態 HTML 報告")
+            print("  generate-report <output_path>  - 生成報告到指定路徑")
     else:
         # 啟動網頁服務
         app = create_app()
